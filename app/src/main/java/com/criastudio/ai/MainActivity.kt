@@ -34,6 +34,8 @@ import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.Effects
+import androidx.media3.transformer.Presentation
 import java.io.File
 
 private val Ink = Color(0xFF101116)
@@ -158,7 +160,7 @@ class MainActivity : ComponentActivity() {
                     } else if (!exporting) {
                         exporting = true
                         status = "Exportando vídeo… não feche o aplicativo."
-                        exportVideo(uri, titleText) { _, msg ->
+                        exportVideo(uri, titleText, ratio) { _, msg ->
                             exporting = false
                             status = msg
                             Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
@@ -186,9 +188,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun exportVideo(uri: Uri, projectTitle: String, done: (Boolean, String) -> Unit) {
+    private fun exportVideo(uri: Uri, projectTitle: String, ratio: String, done: (Boolean, String) -> Unit) {
         val output = File(cacheDir, "criastudio_${System.currentTimeMillis()}.mp4")
-        val edited = EditedMediaItem.Builder(MediaItem.fromUri(uri)).build()
+        val targetAspectRatio = when (ratio) {
+            "9:16" -> 9f / 16f
+            "1:1" -> 1f
+            else -> 16f / 9f
+        }
+        val presentation = Presentation.createForAspectRatio(
+            targetAspectRatio,
+            Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP
+        )
+        val edited = EditedMediaItem.Builder(MediaItem.fromUri(uri))
+            .setEffects(Effects(emptyList(), listOf(presentation)))
+            .build()
         try {
             val transformer = Transformer.Builder(this).addListener(object : Transformer.Listener {
                 override fun onCompleted(composition: androidx.media3.transformer.Composition, exportResult: ExportResult) {
