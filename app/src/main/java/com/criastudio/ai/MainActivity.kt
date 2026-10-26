@@ -13,7 +13,16 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -82,6 +91,7 @@ class MainActivity : ComponentActivity() {
         var durationMs by remember { mutableLongStateOf(0L) }
         var trimStartMs by remember { mutableLongStateOf(0L) }
         var trimEndMs by remember { mutableLongStateOf(0L) }
+        var currentPositionMs by remember { mutableLongStateOf(0L) }
         var selectedTool by remember { mutableStateOf("Formato") }
 
         val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -115,6 +125,13 @@ class MainActivity : ComponentActivity() {
             }
         }
         DisposableEffect(player) { onDispose { player?.release() } }
+
+        LaunchedEffect(player) {
+            while (player != null) {
+                currentPositionMs = player.currentPosition.coerceAtLeast(0L)
+                delay(100)
+            }
+        }
 
         Column(
             Modifier.fillMaxSize().background(Ink).verticalScroll(rememberScrollState())
@@ -183,12 +200,45 @@ class MainActivity : ComponentActivity() {
                 Text(when (ratio) { "9:16" -> "Vertical • Reels, Stories e TikTok"; "1:1" -> "Quadrado • Feed"; else -> "Horizontal • YouTube" }, color = Muted, fontSize = 12.sp)
             }
 
-            if (selectedTool == "Corte") EditorCard("CORTE DO VÍDEO", Icons.Rounded.ContentCut) {
-                Text("Início: ${formatTime(trimStartMs)}", color = Color.White)
-                Slider(value = trimStartMs.toFloat(), onValueChange = { trimStartMs = it.toLong().coerceAtMost((trimEndMs - 500).coerceAtLeast(0L)) }, valueRange = 0f..(durationMs.coerceAtLeast(1000L).toFloat()), enabled = durationMs > 0L)
-                Text("Fim: ${formatTime(if (trimEndMs == 0L) durationMs else trimEndMs)}", color = Color.White)
-                Slider(value = (if (trimEndMs == 0L) durationMs else trimEndMs).toFloat().coerceIn(0f, durationMs.coerceAtLeast(1000L).toFloat()), onValueChange = { trimEndMs = it.toLong().coerceAtLeast(trimStartMs + 500).coerceAtMost(durationMs) }, valueRange = 0f..durationMs.coerceAtLeast(1000L).toFloat(), enabled = durationMs > 0L)
-                Text("Duração original: ${formatTime(durationMs)}", color = Muted, fontSize = 12.sp)
+            if (selectedTool == "Corte") EditorCard("TIMELINE • CORTE", Icons.Rounded.ContentCut) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Text("POSIÇÃO ATUAL", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text(formatTime(currentPositionMs), color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("TRECHO SELECIONADO", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text(formatTime((effectiveTrimEnd(trimEndMs, durationMs) - trimStartMs).coerceAtLeast(0L)), color = Orange, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                VideoTimeline(
+                    durationMs = durationMs,
+                    trimStartMs = trimStartMs,
+                    trimEndMs = effectiveTrimEnd(trimEndMs, durationMs),
+                    playheadMs = currentPositionMs,
+                    onSeek = { position ->
+                        player?.seekTo(position.coerceIn(0L, durationMs.coerceAtLeast(0L)))
+                        currentPositionMs = position
+                    },
+                    onTrimStart = { value ->
+                        val end = effectiveTrimEnd(trimEndMs, durationMs)
+                        trimStartMs = value.coerceIn(0L, (end - 500L).coerceAtLeast(0L))
+                        player?.seekTo(trimStartMs)
+                        currentPositionMs = trimStartMs
+                    },
+                    onTrimEnd = { value ->
+                        val start = trimStartMs
+                        trimEndMs = value.coerceIn((start + 500L).coerceAtMost(durationMs), durationMs.coerceAtLeast(500L))
+                        player?.seekTo(trimEndMs.coerceAtLeast(0L))
+                        currentPositionMs = trimEndMs
+                    }
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("INÍCIO  ${formatTime(trimStartMs)}", color = Muted, fontSize = 12.sp)
+                    Text("FIM  ${formatTime(effectiveTrimEnd(trimEndMs, durationMs))}", color = Muted, fontSize = 12.sp)
+                }
+                Text("Arraste as bordas laranja para cortar ou toque na faixa para avançar.", color = Muted, fontSize = 11.sp)
+                Text("Duração total: ${formatTime(durationMs)}", color = Muted, fontSize = 12.sp)
             }
 
             if (selectedTool == "Texto") EditorCard("TEXTO SOBRE O VÍDEO", Icons.Rounded.Title) {
@@ -241,6 +291,97 @@ class MainActivity : ComponentActivity() {
                 }
             }
             Text("Cria Studio AI • Fase 1", color = Muted, fontSize = 11.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+        }
+    }
+
+    private fun effectiveTrimEnd(trimEnd: Long, duration: Long): Long =
+        if (duration <= 0L) 0L else if (trimEnd <= 0L) duration else trimEnd.coerceIn(0L, duration)
+
+    @Composable
+    private fun VideoTimeline(
+        durationMs: Long,
+        trimStartMs: Long,
+        trimEndMs: Long,
+        playheadMs: Long,
+        onSeek: (Long) -> Unit,
+        onTrimStart: (Long) -> Unit,
+        onTrimEnd: (Long) -> Unit
+    ) {
+        var dragTarget by remember { mutableStateOf("playhead") }
+        val total = durationMs.coerceAtLeast(1L)
+        val start = trimStartMs.coerceIn(0L, total)
+        val end = trimEndMs.coerceIn((start + 500L).coerceAtMost(total), total)
+        val playhead = playheadMs.coerceIn(0L, total)
+
+        Canvas(
+            Modifier.fillMaxWidth().height(76.dp)
+                .pointerInput(durationMs, trimStartMs, trimEndMs) {
+                    detectTapGestures { tap ->
+                        if (durationMs > 0L) {
+                            val ratio = (tap.x / size.width).coerceIn(0f, 1f)
+                            onSeek((ratio * durationMs).toLong())
+                        }
+                    }
+                }
+                .pointerInput(durationMs, trimStartMs, trimEndMs) {
+                    detectDragGestures(
+                        onDragStart = { point ->
+                            val w = size.width.coerceAtLeast(1)
+                            val startX = (start.toFloat() / total * w)
+                            val endX = (end.toFloat() / total * w)
+                            val x = point.x
+                            dragTarget = when {
+                                kotlin.math.abs(x - startX) <= kotlin.math.abs(x - endX) &&
+                                    kotlin.math.abs(x - startX) < 42.dp.toPx() -> "start"
+                                kotlin.math.abs(x - endX) < 42.dp.toPx() -> "end"
+                                else -> "playhead"
+                            }
+                            val ratio = (x / w).coerceIn(0f, 1f)
+                            when (dragTarget) {
+                                "start" -> onTrimStart((ratio * durationMs).toLong())
+                                "end" -> onTrimEnd((ratio * durationMs).toLong())
+                                else -> onSeek((ratio * durationMs).toLong())
+                            }
+                        },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            if (durationMs > 0L) {
+                                val ratio = (change.position.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                                val position = (ratio * durationMs).toLong()
+                                when (dragTarget) {
+                                    "start" -> onTrimStart(position)
+                                    "end" -> onTrimEnd(position)
+                                    else -> onSeek(position)
+                                }
+                            }
+                        }
+                    )
+                }
+        ) {
+            val w = size.width
+            val centerY = size.height * .53f
+            val trackHeight = 16.dp.toPx()
+            val startX = (start.toFloat() / total * w).coerceIn(0f, w)
+            val endX = (end.toFloat() / total * w).coerceIn(startX, w)
+            val headX = (playhead.toFloat() / total * w).coerceIn(0f, w)
+            drawRoundRect(
+                color = Color(0xFF343640),
+                topLeft = Offset(0f, centerY - trackHeight / 2f),
+                size = androidx.compose.ui.geometry.Size(w, trackHeight),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(trackHeight / 2f)
+            )
+            drawRoundRect(
+                color = Orange.copy(alpha = .28f),
+                topLeft = Offset(startX, centerY - trackHeight / 2f),
+                size = androidx.compose.ui.geometry.Size((endX - startX).coerceAtLeast(0f), trackHeight),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(trackHeight / 2f)
+            )
+            drawLine(Orange, Offset(startX, centerY - 17.dp.toPx()), Offset(startX, centerY + 17.dp.toPx()), strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
+            drawLine(Orange, Offset(endX, centerY - 17.dp.toPx()), Offset(endX, centerY + 17.dp.toPx()), strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
+            drawCircle(Orange, radius = 7.dp.toPx(), center = Offset(startX, centerY))
+            drawCircle(Orange, radius = 7.dp.toPx(), center = Offset(endX, centerY))
+            drawLine(Color.White, Offset(headX, 4.dp.toPx()), Offset(headX, size.height - 5.dp.toPx()), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+            drawCircle(Color.White, radius = 4.dp.toPx(), center = Offset(headX, 5.dp.toPx()))
         }
     }
 
