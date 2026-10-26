@@ -246,7 +246,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun Modifier.androidxClickable(onClick: () -> Unit): Modifier =
-        this.then(androidx.compose.foundation.clickable(onClick = onClick))
+        this.clickable(onClick = onClick)
 
     private fun formatTime(ms: Long): String {
         val total = (ms.coerceAtLeast(0L) / 1000L)
