@@ -12,7 +12,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -22,7 +24,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
@@ -40,101 +44,194 @@ private val Muted = Color(0xFFA6A8B4)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme(colorScheme = darkColorScheme(primary = Orange, background = Ink, surface = Panel)) { StudioApp() } }
+        window.statusBarColor = android.graphics.Color.rgb(16, 17, 22)
+        window.navigationBarColor = android.graphics.Color.rgb(16, 17, 22)
+        setContent {
+            MaterialTheme(colorScheme = darkColorScheme(primary = Orange, background = Ink, surface = Panel)) {
+                StudioApp()
+            }
+        }
     }
 
     @Composable
     private fun StudioApp() {
+        val context = LocalContext.current
         var selectedUri by remember { mutableStateOf<Uri?>(null) }
-        var status by remember { mutableStateOf("Escolha um vídeo para começar") }
+        var selectedName by remember { mutableStateOf("") }
+        var status by remember { mutableStateOf("Escolha um vídeo para começar.") }
         var exporting by remember { mutableStateOf(false) }
-        var titleText by remember { mutableStateOf("Seu próximo Reel começa aqui") }
+        var titleText by remember { mutableStateOf("Meu novo vídeo") }
         var ratio by remember { mutableStateOf("9:16") }
-        val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-            if (uri != null) { selectedUri = uri; status = "Vídeo selecionado. Pronto para exportar." }
+
+        val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) {
+                selectedUri = uri
+                selectedName = uri.lastPathSegment?.substringAfterLast('/')?.substringAfterLast(':') ?: "Vídeo selecionado"
+                status = "Vídeo carregado. Agora você pode exportar."
+            }
         }
-        Column(Modifier.fillMaxSize().background(Ink).padding(18.dp)) {
+
+        Column(
+            Modifier.fillMaxSize().background(Ink).verticalScroll(rememberScrollState())
+                .imePadding().padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(Modifier.size(48.dp).clip(RoundedCornerShape(15.dp)).background(Brush.linearGradient(listOf(Orange, Color(0xFFFF9B52)))), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.MovieFilter, null, tint = Color.White, modifier = Modifier.size(28.dp))
+                Box(Modifier.size(46.dp).clip(RoundedCornerShape(14.dp))
+                    .background(Brush.linearGradient(listOf(Orange, Color(0xFFFF9B52))),),
+                    contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.MovieFilter, null, tint = Color.White, modifier = Modifier.size(27.dp))
                 }
                 Column(Modifier.weight(1f)) {
                     Text("CRIA STUDIO", fontSize = 20.sp, fontWeight = FontWeight.Black, color = Color.White, letterSpacing = 1.sp)
-                    Text("IA criativa • vídeo e publicações", color = Muted, fontSize = 12.sp)
+                    Text("Editor de vídeo", color = Muted, fontSize = 12.sp)
                 }
-                Icon(Icons.Rounded.AutoAwesome, null, tint = Orange, modifier = Modifier.size(26.dp))
+                Icon(Icons.Rounded.AutoAwesome, null, tint = Orange, modifier = Modifier.size(25.dp))
             }
-            Spacer(Modifier.height(24.dp))
-            Text("Transforme ideias em conteúdo", color = Color.White, fontSize = 25.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
-            Text("Edite, crie e exporte sem complicação.", color = Muted, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
-            Spacer(Modifier.height(18.dp))
-            Column(Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(24.dp)).background(Brush.linearGradient(listOf(Color(0xFF34233B), Color(0xFF182B35), Color(0xFF24212B)))).clickable { picker.launch("video/*") }.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                Icon(Icons.Rounded.AddCircle, null, tint = Orange, modifier = Modifier.size(46.dp))
-                Spacer(Modifier.height(8.dp))
-                Text(if (selectedUri == null) "Adicionar vídeo" else "Vídeo selecionado", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                Text("Toque para escolher da galeria", color = Muted, fontSize = 12.sp)
+
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(if (selectedUri == null) "Vamos criar seu vídeo" else "Vídeo pronto para editar", color = Color.White, fontSize = 25.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
+                Text(if (selectedUri == null) "Escolha um arquivo da galeria para começar." else "Seu arquivo foi selecionado. Ajuste as opções abaixo e exporte.", color = Muted, fontSize = 14.sp)
             }
-            Spacer(Modifier.height(18.dp))
-            Text("Formato da publicação", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("9:16", "1:1", "16:9").forEach { value ->
-                    FilterChip(selected = ratio == value, onClick = { ratio = value }, label = { Text(value) })
+
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
+                    .background(Brush.linearGradient(listOf(Color(0xFF34233B), Color(0xFF182B35), Color(0xFF24212B))))
+                    .padding(18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(Modifier.fillMaxWidth().height(104.dp).clip(RoundedCornerShape(16.dp)).background(Color(0x33202028)), contentAlignment = Alignment.Center) {
+                    Icon(if (selectedUri == null) Icons.Rounded.VideoLibrary else Icons.Rounded.CheckCircle,
+                        null, tint = Orange, modifier = Modifier.size(54.dp))
+                }
+                Text(if (selectedUri == null) "Nenhum vídeo selecionado" else "Vídeo selecionado ✓",
+                    color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                if (selectedUri != null) {
+                    Text(selectedName, color = Muted, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                Button(
+                    onClick = { picker.launch(arrayOf("video/*")) },
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Orange)
+                ) {
+                    Icon(Icons.Rounded.Add, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (selectedUri == null) "Escolher vídeo da galeria" else "Trocar vídeo", fontWeight = FontWeight.Bold)
                 }
             }
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(value = titleText, onValueChange = { titleText = it }, label = { Text("Texto/gancho para o vídeo") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp))
-            Spacer(Modifier.height(16.dp))
-            Button(onClick = {
-                val uri = selectedUri
-                if (uri == null) { status = "Primeiro, adicione um vídeo da galeria."; return@Button }
-                exporting = true; status = "Exportando vídeo…"; exportVideo(uri) { ok, msg ->
-                    exporting = false; status = msg
-                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
+
+            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Text("FORMATO DO VÍDEO", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("9:16", "1:1", "16:9").forEach { value ->
+                        FilterChip(
+                            selected = ratio == value,
+                            onClick = { ratio = value },
+                            label = { Text(value) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
-            }, enabled = selectedUri != null && !exporting, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Orange)) {
-                if (exporting) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp) else Icon(Icons.Rounded.FileDownload, null)
-                Spacer(Modifier.width(8.dp)); Text(if (exporting) "Exportando…" else "Exportar vídeo MP4", fontWeight = FontWeight.Bold)
+                Text("Formato selecionado: $ratio", color = Muted, fontSize = 12.sp)
             }
-            Spacer(Modifier.height(10.dp))
-            Text(status, color = Muted, fontSize = 12.sp)
-            Spacer(Modifier.weight(1f))
-            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceAround) {
-                BottomItem(Icons.Rounded.Home, "Início", true); BottomItem(Icons.Rounded.VideoLibrary, "Projetos", false)
-                BottomItem(Icons.Rounded.AutoAwesome, "IA", false); BottomItem(Icons.Rounded.Person, "Perfil", false)
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("TEXTO DO PROJETO", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                OutlinedTextField(
+                    value = titleText,
+                    onValueChange = { titleText = it },
+                    label = { Text("Nome do vídeo") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp)
+                )
             }
+
+            Button(
+                onClick = {
+                    val uri = selectedUri
+                    if (uri == null) {
+                        status = "Toque em “Escolher vídeo da galeria” primeiro."
+                        Toast.makeText(this@MainActivity, status, Toast.LENGTH_SHORT).show()
+                    } else if (!exporting) {
+                        exporting = true
+                        status = "Exportando vídeo… não feche o aplicativo."
+                        exportVideo(uri, titleText) { _, msg ->
+                            exporting = false
+                            status = msg
+                            Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                },
+                enabled = !exporting,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Orange, disabledContainerColor = Color(0xFF6F493B))
+            ) {
+                if (exporting) CircularProgressIndicator(Modifier.size(21.dp), color = Color.White, strokeWidth = 2.dp)
+                else Icon(Icons.Rounded.FileDownload, null)
+                Spacer(Modifier.width(9.dp))
+                Text(if (exporting) "Exportando vídeo…" else "Exportar vídeo MP4", fontWeight = FontWeight.Bold)
+            }
+
+            Surface(color = Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Icon(if (exporting) Icons.Rounded.Sync else Icons.Rounded.Info, null, tint = Orange)
+                    Text(status, color = Muted, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.weight(1f))
+                }
+            }
+            Text("Cria Studio AI • versão inicial", color = Muted, fontSize = 11.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
         }
     }
 
-    private fun exportVideo(uri: Uri, done: (Boolean, String) -> Unit) {
+    private fun exportVideo(uri: Uri, projectTitle: String, done: (Boolean, String) -> Unit) {
         val output = File(cacheDir, "criastudio_${System.currentTimeMillis()}.mp4")
         val edited = EditedMediaItem.Builder(MediaItem.fromUri(uri)).build()
-        val transformer = Transformer.Builder(this).addListener(object : Transformer.Listener {
-            override fun onCompleted(composition: androidx.media3.transformer.Composition, exportResult: ExportResult) {
-                try {
-                    val values = ContentValues().apply {
-                        put(MediaStore.Video.Media.DISPLAY_NAME, "CriaStudio_${System.currentTimeMillis()}.mp4")
-                        put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
-                        put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/CriaStudio")
+        try {
+            val transformer = Transformer.Builder(this).addListener(object : Transformer.Listener {
+                override fun onCompleted(composition: androidx.media3.transformer.Composition, exportResult: ExportResult) {
+                    try {
+                        if (!output.exists() || output.length() == 0L) {
+                            runOnUiThread { done(false, "A exportação terminou, mas o arquivo ficou vazio. Tente outro vídeo.") }
+                            return
+                        }
+                        val safeTitle = projectTitle.trim().replace(Regex("[^A-Za-z0-9_-]"), "_").take(40).ifBlank { "Video" }
+                        val values = ContentValues().apply {
+                            put(MediaStore.Video.Media.DISPLAY_NAME, "CriaStudio_${safeTitle}_${System.currentTimeMillis()}.mp4")
+                            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                            put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/CriaStudio")
+                        }
+                        val dest = contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+                        if (dest == null) {
+                            runOnUiThread { done(false, "Não foi possível criar o arquivo na galeria.") }
+                            return
+                        }
+                        val target = contentResolver.openOutputStream(dest)
+                        if (target == null) {
+                            contentResolver.delete(dest, null, null)
+                            runOnUiThread { done(false, "Não foi possível gravar na galeria.") }
+                            return
+                        }
+                        target.use { out -> output.inputStream().use { input -> input.copyTo(out) } }
+                        runOnUiThread { done(true, "Pronto! Salvo em Filmes/CriaStudio.") }
+                    } catch (e: Exception) {
+                        runOnUiThread { done(false, "Falha ao salvar vídeo: ${e.localizedMessage ?: "erro desconhecido"}") }
+                    } finally {
+                        output.delete()
                     }
-                    val dest = contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
-                    if (dest == null) { runOnUiThread { done(false, "Não foi possível salvar o vídeo.") }; return }
-                    contentResolver.openOutputStream(dest)?.use { out -> output.inputStream().use { it.copyTo(out) } }
-                    runOnUiThread { done(true, "Vídeo salvo em Filmes/CriaStudio.") }
-                } catch (e: Exception) { runOnUiThread { done(false, "Falha ao salvar: ${e.message}") } }
-            }
-            override fun onError(composition: androidx.media3.transformer.Composition, exportResult: ExportResult, exportException: ExportException) {
-                runOnUiThread { done(false, "Erro ao exportar: ${exportException.message}") }
-            }
-        }).build()
-        transformer.start(edited, output.absolutePath)
-    }
-}
+                }
 
-@Composable
-private fun BottomItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, active: Boolean) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Icon(icon, null, tint = if (active) Orange else Muted)
-        Text(label, color = if (active) Orange else Muted, fontSize = 10.sp)
+                override fun onError(composition: androidx.media3.transformer.Composition, exportResult: ExportResult, exportException: ExportException) {
+                    output.delete()
+                    runOnUiThread { done(false, "Não foi possível exportar este vídeo: ${exportException.localizedMessage ?: "formato não suportado"}") }
+                }
+            }).build()
+            transformer.start(edited, output.absolutePath)
+        } catch (e: Exception) {
+            output.delete()
+            done(false, "Erro ao iniciar exportação: ${e.localizedMessage ?: "tente novamente"}")
+        }
     }
 }
