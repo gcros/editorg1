@@ -142,7 +142,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxWidth().aspectRatio(when (ratio) { "9:16" -> 9f/16f; "1:1" -> 1f; else -> 16f/9f }).heightIn(min = 220.dp, max = 420.dp)
                         )
                         if (overlayText.isNotBlank()) {
-                            Text(overlayText, color = Color.White, fontSize = (textSize / 3.5f).sp, fontWeight = FontWeight.Black,
+                            Text(overlayText, color = Color(textColor), fontSize = (textSize / 3.5f).sp, fontWeight = FontWeight.Black,
                                 modifier = Modifier.align(if (textY < .4f) Alignment.TopCenter else if (textY > .65f) Alignment.BottomCenter else Alignment.Center)
                                     .padding(horizontal = 16.dp, vertical = 30.dp)
                                     .background(Color(0x55000000), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
@@ -262,7 +262,7 @@ class MainActivity : ComponentActivity() {
         val canvas = Canvas(bitmap)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             this.color = color
-            textSize = size * (width / 1080f)
+            textSize = size * minOf(width / 1080f, height / 1920f)
             typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
             textAlign = Paint.Align.CENTER
             setShadowLayer(8f, 2f, 2f, android.graphics.Color.BLACK)
