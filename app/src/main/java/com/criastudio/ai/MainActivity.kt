@@ -36,13 +36,13 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
-import androidx.media3.transformer.BitmapOverlay
+import androidx.media3.effect.BitmapOverlay
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
-import androidx.media3.transformer.OverlayEffect
-import androidx.media3.transformer.Presentation
+import androidx.media3.effect.OverlayEffect
+import androidx.media3.effect.Presentation
 import androidx.media3.transformer.Transformer
 import java.io.File
 import java.util.concurrent.Executors
@@ -187,7 +187,6 @@ class MainActivity : ComponentActivity() {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Cor:", color = Muted)
                     listOf(android.graphics.Color.WHITE, android.graphics.Color.YELLOW, android.graphics.Color.CYAN, android.graphics.Color.RED).forEach { color ->
-                        androidx.compose.foundation.layout.Box(Modifier.size(32.dp).clip(RoundedCornerShape(16.dp)).background(Color(color)).then(Modifier).padding(0.dp))
                         Box(Modifier.size(32.dp).clip(RoundedCornerShape(16.dp)).background(Color(color)).then(if (textColor == color) Modifier.padding(3.dp).background(Orange, RoundedCornerShape(16.dp)) else Modifier).androidxClickable { textColor = color })
                     }
                 }
