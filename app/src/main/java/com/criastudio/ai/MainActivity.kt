@@ -82,6 +82,7 @@ class MainActivity : ComponentActivity() {
         var durationMs by remember { mutableLongStateOf(0L) }
         var trimStartMs by remember { mutableLongStateOf(0L) }
         var trimEndMs by remember { mutableLongStateOf(0L) }
+        var selectedTool by remember { mutableStateOf("Formato") }
 
         val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri != null) {
@@ -131,8 +132,7 @@ class MainActivity : ComponentActivity() {
                 Icon(Icons.Rounded.AutoAwesome, null, tint = Orange, modifier = Modifier.size(25.dp))
             }
 
-            Text(if (selectedUri == null) "Vamos criar algo incrível" else "Edite seu vídeo", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Bold)
-            Text("Escolha o vídeo, ajuste o corte, coloque seu gancho e exporte.", color = Muted, fontSize = 14.sp)
+            
 
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Panel).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(Modifier.fillMaxWidth().heightIn(min = 220.dp, max = 420.dp).clip(RoundedCornerShape(16.dp)).background(Color.Black), contentAlignment = Alignment.Center) {
@@ -164,7 +164,17 @@ class MainActivity : ComponentActivity() {
                 if (selectedUri != null) Text(selectedName, color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
 
-            EditorCard("FORMATO DE SAÍDA", Icons.Rounded.Crop) {
+
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Panel).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                listOf("Formato" to Icons.Rounded.Crop, "Corte" to Icons.Rounded.ContentCut, "Texto" to Icons.Rounded.Title, "Nome" to Icons.Rounded.DriveFileRenameOutline).forEach { (label, icon) ->
+                    val active = selectedTool == label
+                    Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(if (active) Orange.copy(alpha = .16f) else Color.Transparent).clickable { selectedTool = label }.padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Icon(icon, null, tint = if (active) Orange else Muted, modifier = Modifier.size(18.dp))
+                        Text(label, color = if (active) Orange else Muted, fontSize = 10.sp, fontWeight = if (active) FontWeight.Bold else FontWeight.Medium)
+                    }
+                }
+            }
+            if (selectedTool == "Formato") EditorCard("FORMATO DE SAÍDA", Icons.Rounded.Crop) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("9:16", "1:1", "16:9").forEach { value ->
                         FilterChip(selected = ratio == value, onClick = { ratio = value }, label = { Text(value) }, modifier = Modifier.weight(1f))
@@ -173,7 +183,7 @@ class MainActivity : ComponentActivity() {
                 Text(when (ratio) { "9:16" -> "Vertical • Reels, Stories e TikTok"; "1:1" -> "Quadrado • Feed"; else -> "Horizontal • YouTube" }, color = Muted, fontSize = 12.sp)
             }
 
-            EditorCard("CORTE DO VÍDEO", Icons.Rounded.ContentCut) {
+            if (selectedTool == "Corte") EditorCard("CORTE DO VÍDEO", Icons.Rounded.ContentCut) {
                 Text("Início: ${formatTime(trimStartMs)}", color = Color.White)
                 Slider(value = trimStartMs.toFloat(), onValueChange = { trimStartMs = it.toLong().coerceAtMost((trimEndMs - 500).coerceAtLeast(0L)) }, valueRange = 0f..(durationMs.coerceAtLeast(1000L).toFloat()), enabled = durationMs > 0L)
                 Text("Fim: ${formatTime(if (trimEndMs == 0L) durationMs else trimEndMs)}", color = Color.White)
@@ -181,7 +191,7 @@ class MainActivity : ComponentActivity() {
                 Text("Duração original: ${formatTime(durationMs)}", color = Muted, fontSize = 12.sp)
             }
 
-            EditorCard("TEXTO SOBRE O VÍDEO", Icons.Rounded.Title) {
+            if (selectedTool == "Texto") EditorCard("TEXTO SOBRE O VÍDEO", Icons.Rounded.Title) {
                 OutlinedTextField(value = overlayText, onValueChange = { overlayText = it }, label = { Text("Gancho / legenda") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), minLines = 1, maxLines = 3)
                 Text("Tamanho do texto", color = Color.White, fontWeight = FontWeight.Medium)
                 Slider(value = textSize, onValueChange = { textSize = it }, valueRange = 28f..100f)
@@ -196,7 +206,7 @@ class MainActivity : ComponentActivity() {
                 Text("O texto aparece no preview e será aplicado ao MP4 exportado.", color = Muted, fontSize = 12.sp)
             }
 
-            EditorCard("NOME DO ARQUIVO", Icons.Rounded.DriveFileRenameOutline) {
+            if (selectedTool == "Nome") EditorCard("NOME DO ARQUIVO", Icons.Rounded.DriveFileRenameOutline) {
                 OutlinedTextField(value = projectName, onValueChange = { projectName = it }, label = { Text("Nome do projeto") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(12.dp))
             }
 
