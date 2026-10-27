@@ -217,55 +217,81 @@ class MainActivity : ComponentActivity() {
                 Text(when (ratio) { "9:16" -> "Vertical • Reels, Stories e TikTok"; "1:1" -> "Quadrado • Feed"; else -> "Horizontal • YouTube" }, color = Muted, fontSize = 12.sp)
             }
 
-            if (selectedTool == "Corte") EditorCard("CORTE AUTOMÁTICO POR SILÊNCIO", Icons.Rounded.AutoAwesome) {
-                Text("Analisa o áudio localmente no aparelho. Não envia seu vídeo para a internet.", color = Muted, fontSize = 12.sp)
+            if (selectedTool == "Corte") EditorCard("IA DE CORTES VIRAIS", Icons.Rounded.AutoAwesome) {
+                Text("Encontre um trecho forte do vídeo para Reels, Shorts e TikTok. A IA online analisa o conteúdo do vídeo; o modo grátis/offline usa sinais de áudio para sugerir um trecho, sem enviar o arquivo.", color = Muted, fontSize = 12.sp)
+                OutlinedTextField(
+                    value = geminiKey,
+                    onValueChange = { geminiKey = it.trim() },
+                    label = { Text("Chave Gemini (opcional, online)") },
+                    placeholder = { Text("Chave do Google AI Studio") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
                 Button(
                     onClick = {
                         val uri = selectedUri
-                        if (uri == null) status = "Escolha um vídeo antes de analisar."
+                        if (uri == null) status = "Escolha um vídeo antes de procurar os melhores momentos."
                         else if (!analyzingSilence) {
                             analyzingSilence = true
                             silenceReport = ""
-                            status = "Analisando áudio offline…"
+                            status = if (geminiKey.isNotBlank()) "Enviando vídeo e analisando os melhores momentos com Gemini…" else "Analisando localmente para sugerir um trecho…"
                             scope.launch {
                                 try {
                                     val result = withContext(Dispatchers.IO) {
-                                        SilenceDetector.analyze(contentResolver, uri, durationMs, thresholdDb = -42.0, minSilenceMs = 700L)
-                                    }
-                                    if (result == null) {
-                                        status = "Não encontrei uma faixa de áudio compatível neste vídeo."
-                                    } else {
-                                        val total = durationMs.takeIf { it > 0L } ?: result.durationMs
-                                        val firstSpeech = result.firstSpeechMs.coerceIn(0L, total)
-                                        val lastSpeech = result.lastSpeechMs.coerceIn(firstSpeech, total)
-                                        if (lastSpeech - firstSpeech >= 1000L) {
-                                            trimStartMs = firstSpeech
-                                            trimEndMs = lastSpeech
-                                            player?.seekTo(firstSpeech)
-                                            currentPositionMs = firstSpeech
-                                            silenceReport = "Silêncios longos detectados: ${result.silences.size}. Início/fim ajustados automaticamente."
-                                            status = "Sugestão aplicada: removidos os silêncios do começo e do fim. Revise a timeline antes de exportar."
+                                        if (geminiKey.isNotBlank()) {
+                                            analyzeViralMomentsOnline(geminiKey, uri, durationMs)
                                         } else {
-                                            status = "Não encontrei fala suficiente para sugerir um corte seguro."
+                                            val audio = SilenceDetector.analyze(contentResolver, uri, durationMs, thresholdDb = -42.0, minSilenceMs = 700L)
+                                                ?: throw IOException("Não encontrei uma faixa de áudio compatível.")
+                                            val total = durationMs.takeIf { it > 0L } ?: audio.durationMs
+                                            val target = minOf(30000L, (total * 0.35).toLong()).coerceAtLeast(12000L)
+                                            val boundaries = (listOf(0L, total) + audio.silences.flatMap { listOf(it.first, it.second) })
+                                                .map { it.coerceIn(0L, total) }.distinct().sorted()
+                                            var bestStart = 0L
+                                            var bestEnd = minOf(target, total)
+                                            var bestScore = -1L
+                                            for (candidate in boundaries) {
+                                                val e = minOf(total, candidate + target)
+                                                if (e - candidate < 8000L) continue
+                                                val silencePenalty = audio.silences.sumOf { (s, t) -> (minOf(e, t) - maxOf(candidate, s)).coerceAtLeast(0L) }
+                                                val score = (e - candidate) - silencePenalty * 2
+                                                if (score > bestScore) { bestScore = score; bestStart = candidate; bestEnd = e }
+                                            }
+                                            ViralMoment(bestStart, bestEnd, "Trecho com menos silêncio detectado localmente", 0.55)
                                         }
                                     }
+                                    val total = durationMs.coerceAtLeast(0L)
+                                    val clipStart = result.startMs.coerceAtLeast(0L)
+                                    val clipEnd = if (total > 0L) result.endMs.coerceAtMost(total) else result.endMs
+                                    if (clipEnd - clipStart >= 5000L) {
+                                        trimStartMs = clipStart
+                                        trimEndMs = clipEnd
+                                        player?.seekTo(clipStart)
+                                        currentPositionMs = clipStart
+                                        overlayText = result.hook.ifBlank { "MELHORES MOMENTOS" }
+                                        silenceReport = "Sugestão: ${formatTime(clipStart)}–${formatTime(clipEnd)} • confiança estimada ${(result.confidence * 100).toInt()}%\n${result.reason}"
+                                        status = "Trecho sugerido e aplicado à timeline. Revise antes de exportar."
+                                    } else {
+                                        status = "A IA não encontrou um trecho longo o suficiente. Tente outro vídeo."
+                                    }
                                 } catch (e: Exception) {
-                                    status = "Não foi possível analisar o áudio: ${e.localizedMessage ?: "formato não suportado"}"
+                                    status = "Falha na análise: ${e.localizedMessage ?: "verifique a internet, a chave ou tente o modo grátis"}"
                                 } finally { analyzingSilence = false }
                             }
                         }
                     },
                     enabled = selectedUri != null && !analyzingSilence,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Orange)
                 ) {
                     if (analyzingSilence) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
                     else Icon(Icons.Rounded.AutoAwesome, null)
                     Spacer(Modifier.width(8.dp))
-                    Text(if (analyzingSilence) "Analisando áudio…" else "Detectar silêncios e sugerir corte")
+                    Text(if (analyzingSilence) "Analisando vídeo…" else "Encontrar melhor momento")
                 }
-                if (silenceReport.isNotBlank()) Text(silenceReport, color = Muted, fontSize = 12.sp)
-                Text("A versão inicial ajusta o começo e o fim do vídeo. Silêncios no meio são identificados no relatório, mas ainda não são removidos automaticamente.", color = Muted, fontSize = 11.sp)
+                if (silenceReport.isNotBlank()) Text(silenceReport, color = Color.White, fontSize = 12.sp, lineHeight = 18.sp)
+                Text("Online: envia o vídeo ao serviço Gemini usando sua chave e depende dos limites da API. Grátis/offline: não envia o vídeo, mas usa análise simples de áudio e não entende o conteúdo semântico.", color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
             }
 
             if (selectedTool == "Corte") EditorCard("TIMELINE • CORTE", Icons.Rounded.ContentCut) {
@@ -410,6 +436,85 @@ class MainActivity : ComponentActivity() {
             }
             Text("Cria Studio AI • Fase 1", color = Muted, fontSize = 11.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
         }
+    }
+
+    private data class ViralMoment(val startMs: Long, val endMs: Long, val reason: String, val confidence: Double, val hook: String = "")
+
+    private suspend fun analyzeViralMomentsOnline(apiKey: String, uri: Uri, durationHintMs: Long): ViralMoment {
+        val mime = contentResolver.getType(uri) ?: "video/mp4"
+        val descriptor = contentResolver.openAssetFileDescriptor(uri, "r") ?: throw IOException("Não consegui abrir o vídeo.")
+        val length = descriptor.length
+        if (length <= 0L) { descriptor.close(); throw IOException("Não consegui determinar o tamanho do vídeo.") }
+        val start = (URL("https://generativelanguage.googleapis.com/upload/v1beta/files?key=$apiKey").openConnection() as HttpURLConnection)
+        var uploadUrl: String? = null
+        try {
+            start.requestMethod = "POST"
+            start.connectTimeout = 20000
+            start.readTimeout = 30000
+            start.doOutput = true
+            start.setRequestProperty("X-Goog-Upload-Protocol", "resumable")
+            start.setRequestProperty("X-Goog-Upload-Command", "start")
+            start.setRequestProperty("X-Goog-Upload-Header-Content-Length", length.toString())
+            start.setRequestProperty("X-Goog-Upload-Header-Content-Type", mime)
+            start.setRequestProperty("Content-Type", "application/json")
+            start.outputStream.use { it.write(JSONObject().put("file", JSONObject().put("display_name", "CriaStudio-video-analysis")).toString().toByteArray(Charsets.UTF_8)) }
+            if (start.responseCode !in 200..299) {
+                val msg = (start.errorStream ?: start.inputStream).bufferedReader().use { it.readText() }
+                throw IOException("Gemini upload HTTP ${start.responseCode}: ${msg.take(220)}")
+            }
+            uploadUrl = start.getHeaderField("X-Goog-Upload-URL")
+                ?: throw IOException("O serviço não retornou o endereço de envio.")
+        } finally { start.disconnect() }
+
+        val upload = (URL(uploadUrl).openConnection() as HttpURLConnection)
+        val fileJson: JSONObject
+        try {
+            upload.requestMethod = "POST"
+            upload.connectTimeout = 30000
+            upload.readTimeout = 120000
+            upload.doOutput = true
+            upload.setRequestProperty("Content-Length", length.toString())
+            upload.setRequestProperty("X-Goog-Upload-Offset", "0")
+            upload.setRequestProperty("X-Goog-Upload-Command", "upload, finalize")
+            upload.setRequestProperty("Content-Type", mime)
+            upload.setFixedLengthStreamingMode(length)
+            contentResolver.openInputStream(uri)?.use { input -> upload.outputStream.use { output -> input.copyTo(output) } }
+                ?: throw IOException("Não consegui ler o arquivo de vídeo.")
+            val code = upload.responseCode
+            val body = (if (code in 200..299) upload.inputStream else upload.errorStream).bufferedReader().use { it.readText() }
+            if (code !in 200..299) throw IOException("Gemini upload HTTP $code: ${body.take(220)}")
+            fileJson = JSONObject(body).getJSONObject("file")
+        } finally { upload.disconnect(); descriptor.close() }
+
+        val fileUri = fileJson.optString("uri")
+        val fileState = fileJson.optString("state")
+        if (fileUri.isBlank()) throw IOException("O serviço não retornou o vídeo enviado.")
+        val connection = (URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey").openConnection() as HttpURLConnection)
+        try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 20000
+            connection.readTimeout = 120000
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            val seconds = (durationHintMs.coerceAtLeast(0L) / 1000L)
+            val prompt = "Analise este vídeo para criação de cortes virais de redes sociais. Duração aproximada: $seconds segundos. Escolha o MELHOR trecho contínuo de 15 a 60 segundos (ou o vídeo todo se for menor), com fala/ação interessante, emoção, surpresa, dica ou momento marcante. Retorne somente JSON válido com start_seconds (número), end_seconds (número), hook (gancho em português brasileiro com até 8 palavras), reason (motivo curto em português) e confidence (0 a 1). Não invente eventos; escolha timestamps realmente existentes no vídeo."
+            val parts = JSONArray().put(JSONObject().put("text", prompt))
+                .put(JSONObject().put("file_data", JSONObject().put("mime_type", mime).put("file_uri", fileUri)))
+            val body = JSONObject().put("contents", JSONArray().put(JSONObject().put("parts", parts)))
+                .put("generationConfig", JSONObject().put("responseMimeType", "application/json").put("temperature", 0.2))
+            connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            val code = connection.responseCode
+            val responseText = (if (code in 200..299) connection.inputStream else connection.errorStream).bufferedReader().use { it.readText() }
+            if (code !in 200..299) throw IOException("Gemini análise HTTP $code: ${responseText.take(250)}")
+            val generated = JSONObject(responseText).getJSONArray("candidates").getJSONObject(0)
+                .getJSONObject("content").getJSONArray("parts").getJSONObject(0).getString("text")
+            val jsonText = generated.substringAfter("{", "").let { if (it.isBlank()) generated else "{$it" }.substringBeforeLast("}") + "}"
+            val parsed = JSONObject(jsonText)
+            val startMs = (parsed.optDouble("start_seconds", 0.0).coerceAtLeast(0.0) * 1000).toLong()
+            val endMs = (parsed.optDouble("end_seconds", 0.0).coerceAtLeast(0.0) * 1000).toLong()
+            if (endMs <= startMs) throw IOException("A IA retornou tempos inválidos. Tente novamente.")
+            return ViralMoment(startMs, endMs, parsed.optString("reason", "Melhor trecho sugerido pela IA"), parsed.optDouble("confidence", 0.7).coerceIn(0.0, 1.0), parsed.optString("hook", ""))
+        } finally { connection.disconnect() }
     }
 
     private suspend fun suggestHooks(apiKey: String, videoDescription: String, ratio: String): List<String> {
