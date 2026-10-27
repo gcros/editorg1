@@ -489,7 +489,7 @@ class MainActivity : ComponentActivity() {
         val fileUri = fileJson.optString("uri")
         val fileState = fileJson.optString("state")
         if (fileUri.isBlank()) throw IOException("O serviço não retornou o vídeo enviado.")
-        val connection = (URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey").openConnection() as HttpURLConnection)
+        val connection = (URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=$apiKey").openConnection() as HttpURLConnection)
         try {
             connection.requestMethod = "POST"
             connection.connectTimeout = 20000
@@ -518,7 +518,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private suspend fun suggestHooks(apiKey: String, videoDescription: String, ratio: String): List<String> {
-        val connection = (URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}").openConnection() as HttpURLConnection)
+        val connection = (URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}").openConnection() as HttpURLConnection)
         connection.requestMethod = "POST"
         connection.connectTimeout = 15000
         connection.readTimeout = 30000
