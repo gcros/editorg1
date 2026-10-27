@@ -7,6 +7,17 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import org.json.JSONArray
+import java.net.HttpURLConnection
+import java.net.URL
+import java.io.IOException
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -93,6 +104,12 @@ class MainActivity : ComponentActivity() {
         var trimEndMs by remember { mutableLongStateOf(0L) }
         var currentPositionMs by remember { mutableLongStateOf(0L) }
         var selectedTool by remember { mutableStateOf("Formato") }
+        var analyzingSilence by remember { mutableStateOf(false) }
+        var silenceReport by remember { mutableStateOf("") }
+        var geminiKey by remember { mutableStateOf("") }
+        var generatingHooks by remember { mutableStateOf(false) }
+        var hookSuggestions by remember { mutableStateOf(listOf<String>()) }
+        val scope = rememberCoroutineScope()
 
         val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri != null) {
@@ -200,6 +217,57 @@ class MainActivity : ComponentActivity() {
                 Text(when (ratio) { "9:16" -> "Vertical • Reels, Stories e TikTok"; "1:1" -> "Quadrado • Feed"; else -> "Horizontal • YouTube" }, color = Muted, fontSize = 12.sp)
             }
 
+            if (selectedTool == "Corte") EditorCard("CORTE AUTOMÁTICO POR SILÊNCIO", Icons.Rounded.AutoAwesome) {
+                Text("Analisa o áudio localmente no aparelho. Não envia seu vídeo para a internet.", color = Muted, fontSize = 12.sp)
+                Button(
+                    onClick = {
+                        val uri = selectedUri
+                        if (uri == null) status = "Escolha um vídeo antes de analisar."
+                        else if (!analyzingSilence) {
+                            analyzingSilence = true
+                            silenceReport = ""
+                            status = "Analisando áudio offline…"
+                            scope.launch {
+                                try {
+                                    val result = withContext(Dispatchers.IO) {
+                                        SilenceDetector.analyze(contentResolver, uri, durationMs, thresholdDb = -42.0, minSilenceMs = 700L)
+                                    }
+                                    if (result == null) {
+                                        status = "Não encontrei uma faixa de áudio compatível neste vídeo."
+                                    } else {
+                                        val total = durationMs.takeIf { it > 0L } ?: result.durationMs
+                                        val firstSpeech = result.firstSpeechMs.coerceIn(0L, total)
+                                        val lastSpeech = result.lastSpeechMs.coerceIn(firstSpeech, total)
+                                        if (lastSpeech - firstSpeech >= 1000L) {
+                                            trimStartMs = firstSpeech
+                                            trimEndMs = lastSpeech
+                                            player?.seekTo(firstSpeech)
+                                            currentPositionMs = firstSpeech
+                                            silenceReport = "Silêncios longos detectados: ${result.silences.size}. Início/fim ajustados automaticamente."
+                                            status = "Sugestão aplicada: removidos os silêncios do começo e do fim. Revise a timeline antes de exportar."
+                                        } else {
+                                            status = "Não encontrei fala suficiente para sugerir um corte seguro."
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    status = "Não foi possível analisar o áudio: ${e.localizedMessage ?: "formato não suportado"}"
+                                } finally { analyzingSilence = false }
+                            }
+                        }
+                    },
+                    enabled = selectedUri != null && !analyzingSilence,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Orange)
+                ) {
+                    if (analyzingSilence) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                    else Icon(Icons.Rounded.AutoAwesome, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (analyzingSilence) "Analisando áudio…" else "Detectar silêncios e sugerir corte")
+                }
+                if (silenceReport.isNotBlank()) Text(silenceReport, color = Muted, fontSize = 12.sp)
+                Text("A versão inicial ajusta o começo e o fim do vídeo. Silêncios no meio são identificados no relatório, mas ainda não são removidos automaticamente.", color = Muted, fontSize = 11.sp)
+            }
+
             if (selectedTool == "Corte") EditorCard("TIMELINE • CORTE", Icons.Rounded.ContentCut) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column {
@@ -242,6 +310,56 @@ class MainActivity : ComponentActivity() {
             }
 
             if (selectedTool == "Texto") EditorCard("TEXTO SOBRE O VÍDEO", Icons.Rounded.Title) {
+                OutlinedTextField(
+                    value = geminiKey,
+                    onValueChange = { geminiKey = it.trim() },
+                    label = { Text("Chave da API Gemini (opcional)") },
+                    placeholder = { Text("Cole sua chave do Google AI Studio") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+                Button(
+                    onClick = {
+                        if (geminiKey.isBlank()) status = "Para gerar sugestões, crie uma chave gratuita no Google AI Studio e cole no campo acima."
+                        else if (!generatingHooks) {
+                            generatingHooks = true
+                            status = "Gerando 3 ganchos com Gemini…"
+                            scope.launch {
+                                try {
+                                    val suggestions = withContext(Dispatchers.IO) {
+                                        suggestHooks(geminiKey, selectedName.ifBlank { "vídeo curto para redes sociais" }, ratio)
+                                    }
+                                    hookSuggestions = suggestions
+                                    status = if (suggestions.isNotEmpty()) "Escolha uma sugestão para aplicar no texto." else "A IA não retornou sugestões. Tente novamente."
+                                } catch (e: Exception) {
+                                    status = "Falha na IA: ${e.localizedMessage ?: "verifique a chave e a internet"}"
+                                } finally { generatingHooks = false }
+                            }
+                        }
+                    },
+                    enabled = !generatingHooks,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Orange)
+                ) {
+                    if (generatingHooks) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                    else Icon(Icons.Rounded.AutoAwesome, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (generatingHooks) "Gerando sugestões…" else "Sugerir texto com IA")
+                }
+                if (hookSuggestions.isNotEmpty()) {
+                    Text("TOQUE EM UMA SUGESTÃO PARA USAR", color = Orange, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    hookSuggestions.forEachIndexed { index, suggestion ->
+                        OutlinedButton(
+                            onClick = { overlayText = suggestion; status = "Sugestão aplicada ao texto do vídeo." },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("${index + 1}. ${suggestion}", color = Color.White)
+                        }
+                    }
+                }
+
                 OutlinedTextField(value = overlayText, onValueChange = { overlayText = it }, label = { Text("Gancho / legenda") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), minLines = 1, maxLines = 3)
                 Text("Tamanho do texto", color = Color.White, fontWeight = FontWeight.Medium)
                 Slider(value = textSize, onValueChange = { textSize = it }, valueRange = 28f..100f)
@@ -292,6 +410,32 @@ class MainActivity : ComponentActivity() {
             }
             Text("Cria Studio AI • Fase 1", color = Muted, fontSize = 11.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
         }
+    }
+
+    private suspend fun suggestHooks(apiKey: String, videoDescription: String, ratio: String): List<String> {
+        val connection = (URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}").openConnection() as HttpURLConnection)
+        connection.requestMethod = "POST"
+        connection.connectTimeout = 15000
+        connection.readTimeout = 30000
+        connection.doOutput = true
+        connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+        try {
+            val prompt = "Crie exatamente 3 opções de gancho/legenda curta em português brasileiro para um vídeo de redes sociais. " +
+                "Cada opção deve ter no máximo 12 palavras, ser envolvente sem inventar fatos sobre o vídeo. " +
+                "Não numere. Uma opção por linha. Contexto disponível: nome do arquivo: $videoDescription; formato: $ratio. " +
+                "Como não recebeu o conteúdo visual, mantenha as frases genéricas e adaptáveis."
+            val body = JSONObject().put("contents", JSONArray().put(JSONObject().put("parts", JSONArray().put(JSONObject().put("text", prompt)))))
+                .put("generationConfig", JSONObject().put("temperature", 0.8).put("maxOutputTokens", 180))
+            connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val response = stream.bufferedReader().use { it.readText() }
+            if (code !in 200..299) throw IOException("Gemini HTTP $code: ${JSONObject(response).optString("error", "verifique a chave/limite")}")
+            val text = JSONObject(response).getJSONArray("candidates").getJSONObject(0)
+                .getJSONObject("content").getJSONArray("parts").getJSONObject(0).getString("text")
+            return text.lines().map { it.trim().replace(Regex("^[-*•0-9.) ]+"), "").trim() }
+                .filter { it.isNotBlank() }.take(3)
+        } finally { connection.disconnect() }
     }
 
     private fun effectiveTrimEnd(trimEnd: Long, duration: Long): Long =
