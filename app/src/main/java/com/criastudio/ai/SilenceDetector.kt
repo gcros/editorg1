@@ -6,6 +6,7 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
 import kotlin.math.sqrt
+import java.nio.ByteOrder
 
 /**
  * Local-only audio silence analysis. Decodes the selected audio track to PCM and
@@ -94,6 +95,7 @@ internal object SilenceDetector {
                         if (out != null && info.size > 0) {
                             out.position(info.offset)
                             out.limit(info.offset + info.size)
+                            out.order(ByteOrder.LITTLE_ENDIAN)
                             val ptsMs = (info.presentationTimeUs / 1000L).coerceAtLeast(0L)
                             if (pcmWindow.isEmpty()) windowStartMs = ptsMs
                             while (out.remaining() >= 2) {
